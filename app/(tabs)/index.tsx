@@ -1,10 +1,10 @@
 // screens/PrendaFormScreen.js
 import React, { useState } from 'react';
-import { View, Text, TextInput, Button, StyleSheet, TouchableOpacity, Alert } from 'react-native';
+import { View, StyleSheet, Alert, ScrollView, TouchableOpacity } from 'react-native';
 import { CameraView, CameraType, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useIsFocused, useRoute } from '@react-navigation/native';
-import axios from 'axios';
+import { TextInput, Button, Dialog, Portal, PaperProvider, Text } from 'react-native-paper';
 
 type RootStackParamList = {
   PrendaForm: undefined;
@@ -14,27 +14,70 @@ type RootStackParamList = {
 type Props = NativeStackScreenProps<RootStackParamList, 'PrendaForm'>;
 
 export default function PrendaFormScreen({ navigation }: Props) {
-  const [codigo, setCodigo] = useState('');
-  const [descripcion, setDescripcion] = useState('');
   const [showCamera, setShowCamera] = useState(false);
-  const [talla, setTalla] = useState('');
-  const [color, setColor] = useState('');
   const [permission, requestPermission] = useCameraPermissions();
+  const [visibleModalPermission, setVisibleModalPermission] = useState(false);
   const [scanned, setScanned] = useState(false);
   const route = useRoute();
 
-  if (!permission) {
-    // Camera permissions are still loading.
+  // Dropdown for tallas
+  const [openDDTallas, setOpenDDTallas] = useState(false);
+  const [valueDDTallas, setValueDDTallas] = useState([]);
+  const [itemsDDTallas, setItemsDDTallas] = useState([
+    { label: 'S', value: 's' },
+    { label: 'M', value: 'm' },
+    { label: 'L', value: 'l' },
+  ]);
+
+  // Dropdown for colores
+  const [openDDColores, setOpenDDColores] = useState(false);
+  const [valueDDColores, setValueDDColores] = useState([]);
+  const [itemsDDColores, setItemsDDColores] = useState([
+    { label: 'Rojo', value: 'rojo' },
+    { label: 'Verde', value: 'verde' },
+    { label: 'Azul', value: 'azul' },
+  ]);
+
+  const [form, setForm] = useState({
+    barCode: '',
+    nombre_prenda: '',
+    tipo_tela: '',
+    tallas_disponibles: '',
+    colores_disponibles: '',
+    cantidad_entrante: '',
+    genero_objetivo: '',
+    estado_prenda: ''
+  });
+
+  const showDialogPermission = () => setVisibleModalPermission(true);
+  const hideDialogPermission = () => setVisibleModalPermission(false);
+
+  const setField = (field: keyof typeof form, value: string) => {
+    setForm(prev => ({ ...prev, [field]: value }));
+  };
+
+  if (!permission) { // Camera permissions are still loading.
     return <View />;
   }
 
-  if (!permission.granted) {
-    // Camera permissions are not granted yet.
+  if (!permission.granted) { // Camera permissions are not granted yet.
     return (
-      <View style={styles.container}>
-        <Text style={styles.message}>We need your permission to show the camera</Text>
-        <Button onPress={requestPermission} title="grant permission" />
-      </View>
+      <PaperProvider>
+        <View>
+          <Button onPress={showDialogPermission}>Show Dialog</Button>
+          <Portal>
+            <Dialog visible={visibleModalPermission} onDismiss={hideDialogPermission}>
+              <Dialog.Title>Conceder permiso</Dialog.Title>
+              <Dialog.Content>
+                <Text variant="bodyMedium">Es necesario el permiso de la camara para utilizar la aplicación</Text>
+              </Dialog.Content>
+              <Dialog.Actions>
+                <Button onPress={hideDialogPermission}>Ok</Button>
+              </Dialog.Actions>
+            </Dialog>
+          </Portal>
+        </View>
+      </PaperProvider>
     );
   }
 
@@ -43,28 +86,46 @@ export default function PrendaFormScreen({ navigation }: Props) {
     setScanned(true);
 
     const data = codes[0].data;
-    setCodigo(data);
+    console.log('Código escaneado:', data);
+    setField('barCode', data);
     setShowCamera(false);
 
     setTimeout(() => setScanned(false), 500);
   };
 
-  const guardarPrenda = async () => {
-    try {
-      await axios.post('https://tuapi.com/prendas', {
-        codigo,
-        descripcion,
-        talla,
-        color,
+  const guardarPrenda = () => {
+    fetch('http://192.168.20.242:3010/api/products', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(form),
+    })
+      .then(response => response.json())
+      .then(data => {
+        console.log('Respuesta del servidor:', data);
+        Alert.alert('Éxito', 'Prenda guardada correctamente.');
+      })
+      .catch(error => {
+        console.error('Error al guardar la prenda:', error);
+        Alert.alert('Error', 'No se pudo guardar la prenda. Intenta nuevamente.');
       });
-      alert('Prenda guardada');
-      navigation.goBack();
-    } catch (err) {
-      alert('Error al guardar');
-    }
   };
 
-  if (showCamera) {
+  const verProductos = async () => {
+    fetch('http://192.168.20.242:3010/api/products')
+      .then(response => response.json())
+      .then(data => {
+        console.log('Productos:', data);
+        Alert.alert('Productos', JSON.stringify(data.message));
+      })
+      .catch(error => {
+        console.error('Error al obtener los productos:', error);
+        Alert.alert('Error', 'No se pudo obtener los productos. Intenta nuevamente.');
+      });
+  };
+
+  if (showCamera) { // Show camera view
     return (
       <View style={{ flex: 1 }}>
         <CameraView
@@ -88,9 +149,7 @@ export default function PrendaFormScreen({ navigation }: Props) {
           }
         />
         <View style={styles.cameraOverlay}>
-          <TouchableOpacity style={styles.button} onPress={() => setShowCamera(false)}>
-            <Text style={styles.text}>Cerrar</Text>
-          </TouchableOpacity>
+          <Button onPress={() => setShowCamera(false)} mode='contained'>Cerrar</Button>
         </View>
       </View>
     );
@@ -103,25 +162,30 @@ export default function PrendaFormScreen({ navigation }: Props) {
         <Text style={styles.subtitle}>Ingresa los siguientes datos o escanea el código de barras en la prenda para ingresarla al inventario.</Text>
       </View>
       <View style={styles.containerControls}>
-        <Text>Código:</Text>
-        <TextInput style={styles.input} value={codigo} onChangeText={setCodigo} />
+        <TextInput label={'Código'} value={form.barCode} onChangeText={text => setField('barCode', text)} mode='outlined' right={<TextInput.Icon onPress={() => setShowCamera(true)} icon="camera" />} />
+        <TextInput label={'Nombre de la prenda'} value={form.nombre_prenda} onChangeText={text => setField('nombre_prenda', text)} mode='outlined' />
+        <View style={styles.container}>
+          <Text style={styles.title}>HStack con Scroll:</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            <View style={styles.hstack}>
+              {Array.from({ length: 10 }).map((_, index) => (
+                <TouchableOpacity key={index} style={styles.item}>
+                  <Text style={styles.itemText}>Item {index + 1}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </ScrollView>
+        </View>
+        <TextInput label={'Tallas disponibles'} value={form.tallas_disponibles} onChangeText={text => setField('tallas_disponibles', text)} mode='outlined' />
+        <TextInput label={'Tipo de tela'} value={form.tipo_tela} onChangeText={text => setField('tipo_tela', text)} mode='outlined' />
+        <TextInput label={'Colores disponibles'} value={form.colores_disponibles} onChangeText={text => setField('colores_disponibles', text)} mode='outlined' />
+        <TextInput label={'Cantidad entrante'} value={form.cantidad_entrante} onChangeText={text => setField('cantidad_entrante', text)} mode='outlined' keyboardType="numeric" />
+        <TextInput label={'Género objetivo'} value={form.genero_objetivo} onChangeText={text => setField('genero_objetivo', text)} mode='outlined' />
+        <TextInput label={'Estado prenda'} value={form.estado_prenda} onChangeText={text => setField('estado_prenda', text)} mode='outlined' />
       </View>
-      <View style={styles.containerControls}>
-        <Text>Descripción:</Text>
-        <TextInput style={styles.input} value={descripcion} onChangeText={setDescripcion} />
-      </View>
-      <View style={styles.containerControls}>
-        <Text>Talla:</Text>
-        <TextInput style={styles.input} value={talla} onChangeText={setTalla} />
-      </View>
-      <View style={styles.containerControls}>
-        <Text>Color:</Text>
-        <TextInput style={styles.input} value={color} onChangeText={setColor} />
-      </View>
-
-      <View style={styles.viewButtons}>
-        <Button title="Guardar" onPress={guardarPrenda} />
-        <Button title="Escanear código" onPress={() => setShowCamera(true)} />
+      <View style={styles.containerButtons}>
+        <Button onPress={verProductos} mode='contained'>Ver productos</Button>
+        <Button onPress={guardarPrenda} mode='contained'>Guardar</Button>
       </View>
     </View>
   );
@@ -136,57 +200,39 @@ const styles = StyleSheet.create({
     justifyContent: 'space-evenly',
     flexDirection: 'row',
   },
-  camera: {
-    flex: 1,
-  },
-  buttonContainer: {
-    flex: 1,
+  hstack: {
     flexDirection: 'row',
-    backgroundColor: 'transparent',
-    margin: 64,
+    gap: 10, // solo funciona en versiones nuevas; puedes usar marginRight/marginLeft como alternativa
   },
-  button: {
-    position: 'absolute',
-    bottom: 40,
-    alignSelf: 'center',
-    backgroundColor: '#000',
-    padding: 12,
-    borderRadius: 8,
+  item: {
+    padding: 15,
+    backgroundColor: '#2196f3',
+    borderRadius: 10,
+    marginRight: 10,
   },
-  buttonText: {
-    color: '#fff',
-    fontWeight: 'bold',
-  },
-  text: {
-    fontSize: 24,
-    fontWeight: 'bold',
+  itemText: {
     color: 'white',
-  },
-  message: {
-    textAlign: 'center',
-    paddingBottom: 10,
+    fontWeight: 'bold',
   },
   container: {
-    padding: 20,
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 10,
     gap: 4,
     marginTop: 40,
+    width: '100%',
   },
   containerControls: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: 5,
+    width: '100%',
   },
-  viewButtons: {
-    marginTop: 20,
+  containerButtons: {
+    flex: 1,
     flexDirection: 'row',
+    justifyContent: 'space-evenly',
     alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  input: {
-    borderWidth: 1,
-    padding: 8,
-    marginVertical: 5,
-    width: 250,
+    width: '100%',
   },
   title: {
     fontSize: 26,
